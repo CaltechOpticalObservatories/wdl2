@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "wdl2"
+version = "0.1.0.dev0"
+description = "WDL 2.0 — Waveform Definition Language compiler for Archon CCD controllers"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "BSD-3-Clause" }
+authors = [
+    { name = "David Hale", email = "dhale@caltech.edu" },
+]
+dependencies = [
+    "lark>=1.1.9",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+wdl2 = "wdl2.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wdl2"]

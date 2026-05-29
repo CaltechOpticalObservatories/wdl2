@@ -1,0 +1,14 @@
+# Local-only legacy fixtures (DECISIONS.md: no WDL1 samples in repo).
+tests/samples/preprocessed/
+
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+.eggs/
+*.egg-info/
+dist/
+build/
+.ruff_cache/
+.mypy_cache/
