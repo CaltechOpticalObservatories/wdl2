@@ -1,0 +1,88 @@
+// ----------------------------------------------------------------------------
+// @file     wdl2.lark
+// @brief    native WDL 2.0 grammar (LALR(1))
+// @author   David Hale
+// ----------------------------------------------------------------------------
+// Copyright (C) 2026 California Institute of Technology
+// SPDX-License-Identifier: BSD-3-Clause
+//
+//     This program is part of the Waveform Definition Language (WDL) version 2.
+//     Distributed under the terms of the BSD 3-Clause License; see pyproject.toml.
+// ----------------------------------------------------------------------------
+// Each rule notes the WDL1 construct it replaces and any edge case it carries.
+// The language is grown one construct at a time; top_item gains the block forms
+// (signals, slot, waveform, sequence, mode) as those constructs are added.
+
+// ----------------------------------------------------------------------------
+// top level
+// ----------------------------------------------------------------------------
+// Replaces the .conf orchestration: one source language, organised across files
+// linked by `include` directives rather than a separate project manifest.
+//
+start: top_item*
+
+?top_item: include_directive
+         | const_decl
+         | param_decl
+
+// Replaces GPP #include. The path is a string literal; resolving and inlining
+// comes later.
+//
+include_directive: "include"i ESCAPED_STRING _opt_semi
+
+// Replaces WDL1 `param NAME=INT` (case-insensitive, per wdlParser.consume).
+// Float values are accepted unconditionally (resolves issue #33).
+//
+param_decl: "param"i CNAME "=" expr _SEMI
+
+// Replaces WDL1 `const NAME=INT`.
+//
+const_decl: "const"i CNAME "=" expr _SEMI
+
+// ----------------------------------------------------------------------------
+// expressions
+// ----------------------------------------------------------------------------
+// Replaces GPP #eval. Integer and float arithmetic are first-class; floats are
+// supported unconditionally (no integer-only restriction).
+//
+?expr: sum
+?sum: product
+    | sum "+" product -> add
+    | sum "-" product -> sub
+?product: unary
+        | product "*" unary -> mul
+        | product "/" unary -> div
+        | product "%" unary -> mod
+?unary: atom
+      | "-" unary -> neg
+      | "+" unary -> pos
+?atom: INT          -> int_atom
+     | FLOAT        -> float_atom
+     | CNAME        -> ident_atom
+     | "(" expr ")"
+
+// ----------------------------------------------------------------------------
+// lexical
+// ----------------------------------------------------------------------------
+//
+_SEMI: ";"
+
+// Used where WDL1 leniency allowed an optional terminator (e.g. include);
+// native is strict for statements, lenient for block-closing directives.
+//
+_opt_semi: ";"?
+
+INT: /\d+/
+FLOAT: /\d+\.\d*([eE][+-]?\d+)?|\.\d+([eE][+-]?\d+)?|\d+[eE][+-]?\d+/
+
+%import common.CNAME
+%import common.ESCAPED_STRING
+%import common.WS
+%ignore WS
+
+// Comment forms inherited from WDL1.
+//
+LINE_COMMENT: /\/\/[^\n]*/
+BLOCK_COMMENT: /\/\*([^*]|\*+[^*\/])*\*+\//
+%ignore LINE_COMMENT
+%ignore BLOCK_COMMENT
