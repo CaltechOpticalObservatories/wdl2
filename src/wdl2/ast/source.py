@@ -8,11 +8,16 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 #     This program is part of the Waveform Definition Language (WDL) version 2,
-#     a rewrite of WDL1 as a self-contained Python compiler.  Distributed
+#     a rewrite of WDL1 as a self-contained Python compiler. Distributed
 #     under the terms of the BSD 3-Clause License; see pyproject.toml.
 # -----------------------------------------------------------------------------
 
-"""Source-location record carried on every AST node."""
+"""Source-location record carried on every AST node.
+
+Each node records where it came from in the original source, the file plus a
+start and end line and column. Later stages will report errors and
+diagnostics pointing at the exact span the user wrote.
+"""
 
 from __future__ import annotations
 
@@ -31,10 +36,12 @@ class SrcLoc:
     end_col: int
 
     # -------------------------------------------------------------------------
-    # @fn     unknown
-    # @brief  build a placeholder location for synthesized nodes
-    # @param  file   optional file name to record (defaults to "<unknown>")
-    # @return SrcLoc with zeroed line and column fields
+    # @fn       unknown
+    # @brief    build a placeholder location for synthesized nodes
+    # @details  Used for nodes the compiler creates that have no real span in
+    #           the source text, so that every node still carries a SrcLoc.
+    # @param    file   optional file name to record (defaults to "<unknown>")
+    # @return   a SrcLoc with zeroed line and column fields
     # -------------------------------------------------------------------------
     @classmethod
     def unknown(cls, file: str = "<unknown>") -> "SrcLoc":
