@@ -1,0 +1,87 @@
+// @file     sample.wdl2
+// @brief    wdl2 native language sample
+// @details  Covers one of each construct the wdl2.lark grammar accepts.
+
+include "common.wdl2";
+
+/**
+ * Numeric constants. floats accepted unconditionally.
+ */
+const clockfreq = 100000000;
+const us = clockfreq / 1000000;
+const ms = clockfreq / 1000;
+const VRG_HI = 12.5;
+const SerialLo = -5;
+const Tpulse = 0.8 * us;
+
+param Expose = 0;
+param Abort = 0;
+param RowCount = 2048;
+
+/**
+ * Replaces the .signals file. slot:chan is a distinct typed literal.
+ */
+signals {
+  RG       = 12:1;
+  SW       = 12:2;
+  P1       = 2:2;
+  P2       = 2:4;
+  P3       = 2:6;
+  PClock   = [P1, P2, P3];
+}
+
+/**
+ * Module/slot configuration. Generic directive form; target backend validates.
+ */
+slot 10 lvxbias {
+  LVLC 1 [VRG_HI, 2] "Bias Gate";
+  LVLC 2 [0.0, 1];
+  DIOPOWER = 0;
+}
+
+/**
+ * Waveform: absolute and .+relative times, a time label, FAST slew, group SET.
+ */
+waveform InitClocks {
+  0:                set FSyncB to 1;
+  .+10*us:          set MainResetB to 1, FAST;
+  .+1*ms: =edge    set [P1, P2, P3] to 0, SLOW;
+                    set Hclk to 0;
+}
+
+/**
+ * Sequence: implicit and explicit calls, IF, IF !, GOTO, ++/--, RETURN.
+ */
+sequence Init {
+  InitClocks();
+  call ResetRegs(2);
+  if Expose ReadFrame();
+  if !Abort ReadFrame();
+  RowCount--;
+  RowCount++;
+  goto WaitForExpose();
+  return;
+}
+
+sequence ReadFrame {
+  InitClocks();
+  return;
+}
+
+sequence ResetRegs {
+  return;
+}
+
+sequence WaitForExpose {
+  return;
+}
+
+/**
+ * Mode block replaces .modes.
+ */
+mode DEFAULT {
+  ARCH:HORI_AMPS = 33;
+  FITS:READOUTMODE = "UpTheRampRollingReset";
+  ACF:LINECOUNT = 2048;
+  ACF:Expose = 0;
+}

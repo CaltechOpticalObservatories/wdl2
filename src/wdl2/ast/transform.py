@@ -39,6 +39,8 @@ from .nodes import (
     IncDec,
     Include,
     IntLit,
+    ModeBlock,
+    ModeEntry,
     ParamDecl,
     Program,
     ReturnStmt,
@@ -387,3 +389,31 @@ class NativeTransformer(_BaseTransformer):
     @v_args(meta=True)
     def return_stmt(self, meta: Meta, _children: list) -> ReturnStmt:
         return ReturnStmt(alt_name=None, loc=self._loc(meta))
+
+    # -------------------------------------------------------------------------
+    # mode block. INI-style key[:section]=value entries. a value is a quoted
+    # string or an expression (rendered to text).
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def mode_block(self, meta: Meta, children: list) -> ModeBlock:
+        name = _str(children[0])
+        entries = tuple(children[1:])
+        return ModeBlock(name=name, entries=entries, loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def mode_item(self, meta: Meta, children: list) -> ModeEntry:
+        section, key = children[0]
+        value = children[1]
+        if isinstance(value, str):
+            text = value
+        else:
+            text = repr(value)
+        return ModeEntry(section=section, key=key, value=text, loc=self._loc(meta))
+
+    def mode_key(self, children: list) -> tuple:
+        if len(children) == 2:
+            return (_str(children[0]), _str(children[1]))
+        return (None, _str(children[0]))
+
+    def mode_value_string(self, children: list) -> str:
+        return _str(children[0])[1:-1]  # strip the surrounding quotes

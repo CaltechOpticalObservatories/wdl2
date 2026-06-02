@@ -28,6 +28,7 @@ start: top_item*
          | slot_block
          | waveform_block
          | sequence_block
+         | mode_block
 
 // Replaces GPP #include. The path is a string literal. Resolving and inlining
 // comes later.
@@ -176,6 +177,22 @@ if_neg: "!"
 // `return;`. the alternate-name form is not permitted in native (DECISIONS.md).
 //
 return_stmt: "return"i _SEMI
+
+// ----------------------------------------------------------------------------
+// mode { ... } block
+// ----------------------------------------------------------------------------
+// Replaces the .modes file. Mode names match the `[MODE_xxx]` headers without
+// the brackets. Each entry is an optional section, a key, and a value.
+//
+mode_block: "mode"i CNAME "{" mode_item* "}"
+
+mode_item: mode_key "=" mode_value _SEMI
+
+mode_key: CNAME (":" CNAME)?
+
+?mode_value: mode_value_string | expr
+
+mode_value_string: ESCAPED_STRING
 
 // ----------------------------------------------------------------------------
 // expressions

@@ -267,6 +267,23 @@ class SequenceBlock(Node):
 
 
 # -----------------------------------------------------------------------------
+# modes
+# -----------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class ModeEntry(Node):
+    section: str | None
+    key: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModeBlock(Node):
+    name: str
+    entries: tuple[ModeEntry, ...]
+
+
+# -----------------------------------------------------------------------------
 # top-level program container
 # -----------------------------------------------------------------------------
 # TopItem gains the block forms (signals, slot, waveform, sequence, mode) as
@@ -280,6 +297,7 @@ TopItem = (
     | SlotBlock
     | WaveformBlock
     | SequenceBlock
+    | ModeBlock
 )
 
 
