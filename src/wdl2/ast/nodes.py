@@ -35,7 +35,7 @@ from .source import SrcLoc
 
 @dataclass(frozen=True, slots=True)
 class Node:
-    """Base class for every AST node.  The source location is keyword-only so
+    """Base class for every AST node. The source location is keyword-only so
     that subclasses are free to declare positional fields of their own."""
 
     loc: SrcLoc = field(kw_only=True)
@@ -77,6 +77,29 @@ Expr = IntLit | FloatLit | IdentRef | BinOp | UnaryOp
 
 
 # -----------------------------------------------------------------------------
+# signal values (slot:chan typed literals and group aliases)
+# -----------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class SlotChan(Node):
+    slot: int
+    chan: int
+
+
+@dataclass(frozen=True, slots=True)
+class SignalRef(Node):
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class SignalGroup(Node):
+    members: tuple["SignalValue", ...]
+
+
+SignalValue = SlotChan | SignalRef | SignalGroup
+
+
+# -----------------------------------------------------------------------------
 # top-level declarations
 # -----------------------------------------------------------------------------
 
@@ -97,13 +120,24 @@ class ParamDecl(Node):
     value: Expr
 
 
+@dataclass(frozen=True, slots=True)
+class SignalItem(Node):
+    name: str
+    value: SignalValue
+
+
+@dataclass(frozen=True, slots=True)
+class SignalsBlock(Node):
+    items: tuple[SignalItem, ...]
+
+
 # -----------------------------------------------------------------------------
 # top-level program container
 # -----------------------------------------------------------------------------
 # TopItem gains the block forms (signals, slot, waveform, sequence, mode) as
-# those constructs are added in later steps; Program is the AST root.
+# those constructs are added in later steps. Program is the AST root.
 
-TopItem = Include | ConstDecl | ParamDecl
+TopItem = Include | ConstDecl | ParamDecl | SignalsBlock
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +188,7 @@ class Visitor:
     # @fn       _visit_value
     # @brief    visit one field value, descending into nodes and tuples of nodes
     # @details  Children are stored as tuples (to stay immutable), so a tuple is
-    #           walked element by element; non-node values are simply ignored.
+    #           walked element by element. Non-node values are simply ignored.
     # @param    value   a field value pulled from a node
     # @return   None
     # -------------------------------------------------------------------------

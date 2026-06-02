@@ -37,6 +37,11 @@ from .nodes import (
     IntLit,
     ParamDecl,
     Program,
+    SignalGroup,
+    SignalItem,
+    SignalRef,
+    SignalsBlock,
+    SlotChan,
     UnaryOp,
 )
 from .source import SrcLoc
@@ -46,7 +51,7 @@ from .source import SrcLoc
 # @fn       _str
 # @brief    render a lark token (or anything) as a plain string
 # @details  lark hands rule children back as Token objects (a str subclass) or
-#           as already-built nodes; this normalizes a token to a plain str so
+#           as already-built nodes. This normalizes a token to a plain str so
 #           downstream code never carries Token instances into the AST.
 # @param    token   a lark Token or other value
 # @return   the string form
@@ -70,7 +75,7 @@ class _BaseTransformer(Transformer):
     # @fn       _loc
     # @brief    build a SrcLoc from a lark rule's position metadata
     # @details  Position info is present because the parser is built with
-    #           propagate_positions; rules with no span (rare, synthesized)
+    #           propagate_positions. Rules with no span (rare, synthesized)
     #           fall back to an unknown location so a SrcLoc is always present.
     # @param    meta   lark Meta for the rule (may be empty for some rules)
     # @return   a SrcLoc spanning the rule, or an unknown loc when unavailable
@@ -131,6 +136,13 @@ class _BaseTransformer(Transformer):
         # unary `+` is a no-op (the samples use `+25us:` as a time prefix)
         return children[0]
 
+    # -------------------------------------------------------------------------
+    # slot:chan literal -- shared by signals, set targets, and signal defines
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def slot_chan(self, meta: Meta, children: list) -> SlotChan:
+        return SlotChan(slot=int(children[0]), chan=int(children[1]), loc=self._loc(meta))
+
 
 # -----------------------------------------------------------------------------
 # native transformer
@@ -160,3 +172,23 @@ class NativeTransformer(_BaseTransformer):
     @v_args(meta=True)
     def const_decl(self, meta: Meta, children: list) -> ConstDecl:
         return ConstDecl(name=_str(children[0]), value=children[1], loc=self._loc(meta))
+
+    # -------------------------------------------------------------------------
+    # signals block -- one item per signal. a value is a slot:chan literal, a
+    # bracketed group of values, or a reference to another signal name.
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def signals_block(self, meta: Meta, children: list) -> SignalsBlock:
+        return SignalsBlock(items=tuple(children), loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def signal_item(self, meta: Meta, children: list) -> SignalItem:
+        return SignalItem(name=_str(children[0]), value=children[1], loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def signal_ref(self, meta: Meta, children: list) -> SignalRef:
+        return SignalRef(name=_str(children[0]), loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def signal_group(self, meta: Meta, children: list) -> SignalGroup:
+        return SignalGroup(members=tuple(children), loc=self._loc(meta))

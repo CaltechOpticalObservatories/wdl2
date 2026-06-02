@@ -10,7 +10,7 @@
 //     Distributed under the terms of the BSD 3-Clause License; see pyproject.toml.
 // ----------------------------------------------------------------------------
 // Each rule notes the WDL1 construct it replaces and any edge case it carries.
-// The language is grown one construct at a time; top_item gains the block forms
+// The language is grown one construct at a time. top_item gains the block forms
 // (signals, slot, waveform, sequence, mode) as those constructs are added.
 
 // ----------------------------------------------------------------------------
@@ -24,8 +24,9 @@ start: top_item*
 ?top_item: include_directive
          | const_decl
          | param_decl
+         | signals_block
 
-// Replaces GPP #include. The path is a string literal; resolving and inlining
+// Replaces GPP #include. The path is a string literal. Resolving and inlining
 // comes later.
 //
 include_directive: "include"i ESCAPED_STRING _opt_semi
@@ -40,9 +41,30 @@ param_decl: "param"i CNAME "=" expr _SEMI
 const_decl: "const"i CNAME "=" expr _SEMI
 
 // ----------------------------------------------------------------------------
+// signals { ... } block
+// ----------------------------------------------------------------------------
+// Replaces the .signals file and GPP #define-based signal table. slot:chan is
+// a distinct typed literal (not a numeric expression). Group aliases use the
+// bracket form `Foo = [A, B, C];`; conditional signal sets use top-level `if`.
+//
+signals_block: "signals"i "{" signal_item* "}"
+
+signal_item: CNAME "=" signal_value _SEMI
+
+?signal_value: slot_chan
+             | signal_group
+             | signal_ref
+
+signal_group: "[" signal_value ("," signal_value)* "]"
+
+signal_ref: CNAME
+
+slot_chan: INT ":" INT
+
+// ----------------------------------------------------------------------------
 // expressions
 // ----------------------------------------------------------------------------
-// Replaces GPP #eval. Integer and float arithmetic are first-class; floats are
+// Replaces GPP #eval. Integer and float arithmetic are first-class. floats are
 // supported unconditionally (no integer-only restriction).
 //
 ?expr: sum
