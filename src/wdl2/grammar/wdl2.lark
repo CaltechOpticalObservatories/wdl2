@@ -26,6 +26,8 @@ start: top_item*
          | param_decl
          | signals_block
          | slot_block
+         | waveform_block
+         | sequence_block
 
 // Replaces GPP #include. The path is a string literal. Resolving and inlining
 // comes later.
@@ -86,6 +88,96 @@ slot_dir_chan: INT
 slot_dir_args: "[" arg_list "]"
 
 // ----------------------------------------------------------------------------
+// waveform { ... } block
+// ----------------------------------------------------------------------------
+// Replaces the WDL1 .waveform files. RETURN is not permitted in native. the
+// closing brace ends a waveform, and the compiler emits the ACF-format RETURN
+// as a codegen concern.
+//
+waveform_block: "waveform"i CNAME "{" wf_stmt* "}"
+
+// A time-prefixed SET with an optional =label, or a bare SET. one SET per
+// statement. lines that share a time are written as bare SETs that inherit the
+// previous time.
+//
+?wf_stmt: wf_timed_set | wf_bare_set
+
+wf_timed_set: time_designator ":" wf_label? set_stmt
+
+wf_bare_set: set_stmt
+
+wf_label: "=" CNAME
+
+?time_designator: time_relative | time_absolute
+
+// `.+expr` adds to the previous evaluated time.
+//
+time_relative: "." "+" expr
+
+time_absolute: expr
+
+// SET statement. the target is a single signal / slot:chan or a bracketed list.
+// FAST/SLOW slew is accepted here. enforcement is left to a semantic phase.
+//
+set_stmt: "set"i set_target_or_group "to"i expr slew? _SEMI
+
+?set_target_or_group: set_target | set_target_group
+
+set_target_group: "[" set_target ("," set_target)* "]"
+
+?set_target: set_target_slotchan | set_target_ref
+
+set_target_slotchan: slot_chan
+
+set_target_ref: CNAME
+
+slew: "," SLEW_KIND
+
+SLEW_KIND: "FAST"i | "SLOW"i
+
+// ----------------------------------------------------------------------------
+// sequence { ... } block
+// ----------------------------------------------------------------------------
+// Replaces the WDL1 .seq SEQUENCE blocks. CALL is optional (a bare name is an
+// implicit call). IF supports `!` negation across param and const (issue #30).
+//
+sequence_block: "sequence"i CNAME "{" seq_stmt* "}"
+
+?seq_stmt: explicit_call_stmt
+        | ident_seq_stmt
+        | goto_stmt
+        | if_stmt
+        | return_stmt
+
+// `CALL Name(arg);`
+//
+explicit_call_stmt: "call"i CNAME "(" arg? ")" _SEMI
+
+// `Name(arg);`, or `param++;` / `param--;`
+//
+ident_seq_stmt: CNAME ident_seq_tail
+
+?ident_seq_tail: ident_seq_call | ident_seq_inc | ident_seq_dec
+
+ident_seq_call: "(" arg? ")" _SEMI
+
+ident_seq_inc: "++" _SEMI
+
+ident_seq_dec: "--" _SEMI
+
+goto_stmt: "goto"i CNAME "(" ")" _SEMI
+
+// `if !param body`. the `!` negation resolves issue #30 across param and const.
+//
+if_stmt: "if"i if_neg? CNAME seq_stmt
+
+if_neg: "!"
+
+// `return;`. the alternate-name form is not permitted in native (DECISIONS.md).
+//
+return_stmt: "return"i _SEMI
+
+// ----------------------------------------------------------------------------
 // expressions
 // ----------------------------------------------------------------------------
 // Replaces GPP #eval. Integer and float arithmetic are first-class. floats are
@@ -107,9 +199,13 @@ slot_dir_args: "[" arg_list "]"
      | CNAME        -> ident_atom
      | "(" expr ")"
 
-// argument list, used by slot directive args (and later by sequence calls)
+// argument list, used by slot directive bracket args
 //
 arg_list: expr ("," expr)*
+
+// single argument, used by sequence CALL and implicit-call statements
+//
+arg: expr
 
 // ----------------------------------------------------------------------------
 // lexical

@@ -30,21 +30,34 @@ from lark.tree import Meta
 
 from .nodes import (
     BinOp,
+    CallStmt,
     ConstDecl,
     FloatLit,
+    GotoStmt,
     IdentRef,
+    IfStmt,
+    IncDec,
     Include,
     IntLit,
     ParamDecl,
     Program,
+    ReturnStmt,
+    SequenceBlock,
+    SetStmt,
     SignalGroup,
     SignalItem,
     SignalRef,
     SignalsBlock,
+    Slew,
     SlotBlock,
     SlotChan,
     SlotDir,
+    TimeAbsolute,
+    TimeRelative,
     UnaryOp,
+    WaveformBlock,
+    WfBareSet,
+    WfTimedStmt,
 )
 from .source import SrcLoc
 
@@ -140,6 +153,9 @@ class _BaseTransformer(Transformer):
 
     def arg_list(self, children: list) -> tuple:
         return tuple(children)
+
+    def arg(self, children: list) -> Any:
+        return children[0]
 
     # -------------------------------------------------------------------------
     # slot:chan literal. Shared by signals, set targets, and signal defines
@@ -240,3 +256,134 @@ class NativeTransformer(_BaseTransformer):
             label=None,
             loc=self._loc(meta),
         )
+
+    # -------------------------------------------------------------------------
+    # waveform block. time-prefixed or bare SET statements. native waveforms
+    # never contain a RETURN (the closing brace ends them), so pyext is None.
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def waveform_block(self, meta: Meta, children: list) -> WaveformBlock:
+        name = _str(children[0])
+        stmts = tuple(children[1:])
+        return WaveformBlock(name=name, pyext=None, stmts=stmts, loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def wf_timed_set(self, meta: Meta, children: list) -> WfTimedStmt:
+        # children = [time, label?, set_stmt]
+        time = children[0]
+        label = None
+        rest = children[1:]
+        if rest and isinstance(rest[0], str):
+            label = rest[0]
+            rest = rest[1:]
+        set_stmt = rest[0]
+        return WfTimedStmt(time=time, label=label, sets=(set_stmt,), ret=None, loc=self._loc(meta))
+
+    def wf_label(self, children: list) -> str:
+        return _str(children[0])
+
+    @v_args(meta=True)
+    def wf_bare_set(self, meta: Meta, children: list) -> WfBareSet:
+        return WfBareSet(set=children[0], loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def time_relative(self, meta: Meta, children: list) -> TimeRelative:
+        return TimeRelative(expr=children[0], loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def time_absolute(self, meta: Meta, children: list) -> TimeAbsolute:
+        return TimeAbsolute(expr=children[0], loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def set_stmt(self, meta: Meta, children: list) -> SetStmt:
+        # children[0] is a single target or a tuple from a target group
+        target = children[0]
+        target_group = None
+        single: Any = None
+        if isinstance(target, tuple):
+            target_group = target
+        else:
+            single = target
+        value = children[1]
+        slew = children[2] if len(children) > 2 else None
+        return SetStmt(
+            target=single,
+            target_group=target_group,
+            value=value,
+            slew=slew,
+            loc=self._loc(meta),
+        )
+
+    def set_target_group(self, children: list) -> tuple:
+        return tuple(children)
+
+    @v_args(meta=True)
+    def set_target_ref(self, meta: Meta, children: list) -> SignalRef:
+        return SignalRef(name=_str(children[0]), loc=self._loc(meta))
+
+    def set_target_slotchan(self, children: list) -> SlotChan:
+        return children[0]
+
+    @v_args(meta=True)
+    def slew(self, meta: Meta, children: list) -> Slew:
+        kind = _str(children[0]).upper()
+        return Slew(kind=kind, loc=self._loc(meta))  # type: ignore[arg-type]
+
+    # -------------------------------------------------------------------------
+    # sequence block. explicit CALL, implicit call / ++ / --, GOTO, IF (with
+    # optional `!` negation), and a bare RETURN.
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def sequence_block(self, meta: Meta, children: list) -> SequenceBlock:
+        name = _str(children[0])
+        stmts = tuple(children[1:])
+        return SequenceBlock(name=name, stmts=stmts, loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def explicit_call_stmt(self, meta: Meta, children: list) -> CallStmt:
+        name = _str(children[0])
+        arg = children[1] if len(children) > 1 else None
+        return CallStmt(target=name, arg=arg, explicit=True, loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def ident_seq_stmt(self, meta: Meta, children: list) -> Any:
+        # the tail is a small tagged tuple from ident_seq_call / inc / dec
+        name = _str(children[0])
+        kind, payload = children[1]
+        if kind == "call":
+            return CallStmt(target=name, arg=payload, explicit=False, loc=self._loc(meta))
+        if kind == "inc":
+            return IncDec(name=name, op="++", loc=self._loc(meta))
+        if kind == "dec":
+            return IncDec(name=name, op="--", loc=self._loc(meta))
+        raise AssertionError(f"unknown ident_seq tail: {kind}")
+
+    def ident_seq_call(self, children: list) -> tuple:
+        return ("call", children[0] if children else None)
+
+    def ident_seq_inc(self, _children: list) -> tuple:
+        return ("inc", None)
+
+    def ident_seq_dec(self, _children: list) -> tuple:
+        return ("dec", None)
+
+    @v_args(meta=True)
+    def goto_stmt(self, meta: Meta, children: list) -> GotoStmt:
+        return GotoStmt(target=_str(children[0]), loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def if_stmt(self, meta: Meta, children: list) -> IfStmt:
+        # children = [if_neg?, CNAME, body]
+        negated = False
+        rest = list(children)
+        if rest and rest[0] is True:
+            negated = True
+            rest = rest[1:]
+        return IfStmt(negated=negated, param=_str(rest[0]), body=rest[1], loc=self._loc(meta))
+
+    def if_neg(self, _children: list) -> bool:
+        return True
+
+    @v_args(meta=True)
+    def return_stmt(self, meta: Meta, _children: list) -> ReturnStmt:
+        return ReturnStmt(alt_name=None, loc=self._loc(meta))

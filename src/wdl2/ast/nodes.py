@@ -151,12 +151,136 @@ class SlotBlock(Node):
 
 
 # -----------------------------------------------------------------------------
+# waveform
+# -----------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class PythonExt(Node):
+    """Legacy WAVEFORM name.attr(args) metaprogramming hook. Populated only by
+    the legacy transformer. Native waveforms never carry one."""
+
+    attr: str
+    args: tuple[Expr, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class Slew(Node):
+    kind: Literal["FAST", "SLOW"]
+
+
+# A SET target is a signal reference or a slot:chan literal. Group targets are
+# expressed by a tuple in SetStmt.target_group instead.
+SetTarget = SignalRef | SlotChan
+
+
+@dataclass(frozen=True, slots=True)
+class SetStmt(Node):
+    # Exactly one of target or target_group is non-None.
+    target: SetTarget | None
+    target_group: tuple[SetTarget, ...] | None
+    value: Expr
+    slew: Slew | None
+
+
+@dataclass(frozen=True, slots=True)
+class TimeAbsolute(Node):
+    expr: Expr
+
+
+@dataclass(frozen=True, slots=True)
+class TimeRelative(Node):
+    """`.+expr`. Adds to the previous evaluated time."""
+
+    expr: Expr
+
+
+TimeDesignator = TimeAbsolute | TimeRelative
+
+
+@dataclass(frozen=True, slots=True)
+class ReturnStmt(Node):
+    alt_name: str | None  # legacy `RETURN AltName;`. None in native
+
+
+@dataclass(frozen=True, slots=True)
+class WfTimedStmt(Node):
+    time: TimeDesignator
+    label: str | None
+    sets: tuple[SetStmt, ...]
+    ret: ReturnStmt | None  # a legacy timed line may carry a RETURN as its body
+
+
+@dataclass(frozen=True, slots=True)
+class WfBareSet(Node):
+    """A SET line with no time prefix. Inherits the previous time."""
+
+    set: SetStmt
+
+
+WfStmt = WfTimedStmt | WfBareSet | ReturnStmt
+
+
+@dataclass(frozen=True, slots=True)
+class WaveformBlock(Node):
+    name: str
+    pyext: PythonExt | None
+    stmts: tuple[WfStmt, ...]
+
+
+# -----------------------------------------------------------------------------
+# sequence
+# -----------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class CallStmt(Node):
+    target: str
+    arg: Expr | None
+    explicit: bool  # True if the CALL keyword was present
+
+
+@dataclass(frozen=True, slots=True)
+class GotoStmt(Node):
+    target: str
+
+
+@dataclass(frozen=True, slots=True)
+class IfStmt(Node):
+    negated: bool
+    param: str
+    body: "SeqStmt"
+
+
+@dataclass(frozen=True, slots=True)
+class IncDec(Node):
+    name: str
+    op: Literal["++", "--"]
+
+
+# PrintStmt (legacy PRINT) joins this union when the legacy grammar lands.
+SeqStmt = CallStmt | GotoStmt | IfStmt | ReturnStmt | IncDec
+
+
+@dataclass(frozen=True, slots=True)
+class SequenceBlock(Node):
+    name: str
+    stmts: tuple[SeqStmt, ...]
+
+
+# -----------------------------------------------------------------------------
 # top-level program container
 # -----------------------------------------------------------------------------
 # TopItem gains the block forms (signals, slot, waveform, sequence, mode) as
 # those constructs are added in later steps. Program is the AST root.
 
-TopItem = Include | ConstDecl | ParamDecl | SignalsBlock | SlotBlock
+TopItem = (
+    Include
+    | ConstDecl
+    | ParamDecl
+    | SignalsBlock
+    | SlotBlock
+    | WaveformBlock
+    | SequenceBlock
+)
 
 
 @dataclass(frozen=True, slots=True)
