@@ -25,6 +25,7 @@ start: top_item*
          | const_decl
          | param_decl
          | signals_block
+         | slot_block
 
 // Replaces GPP #include. The path is a string literal. Resolving and inlining
 // comes later.
@@ -45,7 +46,7 @@ const_decl: "const"i CNAME "=" expr _SEMI
 // ----------------------------------------------------------------------------
 // Replaces the .signals file and GPP #define-based signal table. slot:chan is
 // a distinct typed literal (not a numeric expression). Group aliases use the
-// bracket form `Foo = [A, B, C];`; conditional signal sets use top-level `if`.
+// bracket form `Foo = [A, B, C];`. Conditional signal sets use top-level `if`.
 //
 signals_block: "signals"i "{" signal_item* "}"
 
@@ -60,6 +61,29 @@ signal_group: "[" signal_value ("," signal_value)* "]"
 signal_ref: CNAME
 
 slot_chan: INT ":" INT
+
+// ----------------------------------------------------------------------------
+// slot { ... } block
+// ----------------------------------------------------------------------------
+// Replaces the WDL1 .mod SLOT blocks. The directive form is generic. the 17
+// module types are validated downstream by the Archon target, not enumerated
+// here.
+//
+slot_block: "slot"i INT CNAME "{" slot_dir* "}"
+
+?slot_dir: slot_dir_array | slot_dir_kv
+
+// `LVLC 1 [V_BiasGate, 2] "Bias Gate";`. Channel + bracket args + label
+//
+slot_dir_array: CNAME slot_dir_chan? slot_dir_args? ESCAPED_STRING? _opt_semi
+
+// `DIOPOWER = 0;`. Key=value form, with optional channel (`CLAMP 1 = 1.5;`)
+//
+slot_dir_kv: CNAME slot_dir_chan? "=" expr _opt_semi
+
+slot_dir_chan: INT
+
+slot_dir_args: "[" arg_list "]"
 
 // ----------------------------------------------------------------------------
 // expressions
@@ -82,6 +106,10 @@ slot_chan: INT ":" INT
      | FLOAT        -> float_atom
      | CNAME        -> ident_atom
      | "(" expr ")"
+
+// argument list, used by slot directive args (and later by sequence calls)
+//
+arg_list: expr ("," expr)*
 
 // ----------------------------------------------------------------------------
 // lexical

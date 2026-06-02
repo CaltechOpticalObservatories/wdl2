@@ -41,7 +41,9 @@ from .nodes import (
     SignalItem,
     SignalRef,
     SignalsBlock,
+    SlotBlock,
     SlotChan,
+    SlotDir,
     UnaryOp,
 )
 from .source import SrcLoc
@@ -136,8 +138,11 @@ class _BaseTransformer(Transformer):
         # unary `+` is a no-op (the samples use `+25us:` as a time prefix)
         return children[0]
 
+    def arg_list(self, children: list) -> tuple:
+        return tuple(children)
+
     # -------------------------------------------------------------------------
-    # slot:chan literal -- shared by signals, set targets, and signal defines
+    # slot:chan literal. Shared by signals, set targets, and signal defines
     # -------------------------------------------------------------------------
     @v_args(meta=True)
     def slot_chan(self, meta: Meta, children: list) -> SlotChan:
@@ -174,7 +179,7 @@ class NativeTransformer(_BaseTransformer):
         return ConstDecl(name=_str(children[0]), value=children[1], loc=self._loc(meta))
 
     # -------------------------------------------------------------------------
-    # signals block -- one item per signal. a value is a slot:chan literal, a
+    # signals block. One item per signal. A value is a slot:chan literal, a
     # bracketed group of values, or a reference to another signal name.
     # -------------------------------------------------------------------------
     @v_args(meta=True)
@@ -192,3 +197,46 @@ class NativeTransformer(_BaseTransformer):
     @v_args(meta=True)
     def signal_group(self, meta: Meta, children: list) -> SignalGroup:
         return SignalGroup(members=tuple(children), loc=self._loc(meta))
+
+    # -------------------------------------------------------------------------
+    # slot block. A numbered slot of a given module kind, holding generic
+    # directives in array form (`KW [args] "label"`) or key=value form.
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def slot_block(self, meta: Meta, children: list) -> SlotBlock:
+        num = int(children[0])
+        kind = _str(children[1])
+        directives = tuple(children[2:])
+        return SlotBlock(num=num, kind=kind, directives=directives, loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def slot_dir_array(self, meta: Meta, children: list) -> SlotDir:
+        keyword = _str(children[0])
+        chan = None
+        args: tuple = ()
+        label = None
+        for c in children[1:]:
+            if isinstance(c, int):
+                chan = c
+            elif isinstance(c, tuple):
+                args = c
+            elif isinstance(c, str):
+                label = c
+        return SlotDir(keyword=keyword, chan=chan, args=args, label=label, loc=self._loc(meta))
+
+    def slot_dir_chan(self, children: list) -> int:
+        return int(children[0])
+
+    def slot_dir_args(self, children: list) -> tuple:
+        return children[0]  # arg_list already returns a tuple
+
+    @v_args(meta=True)
+    def slot_dir_kv(self, meta: Meta, children: list) -> SlotDir:
+        keyword = _str(children[0])
+        return SlotDir(
+            keyword=keyword,
+            chan=None,
+            args=(children[1],),
+            label=None,
+            loc=self._loc(meta),
+        )

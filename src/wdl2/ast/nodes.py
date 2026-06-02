@@ -132,12 +132,31 @@ class SignalsBlock(Node):
 
 
 # -----------------------------------------------------------------------------
+# slot block (generic SLOT directives)
+# -----------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class SlotDir(Node):
+    keyword: str
+    chan: int | None
+    args: tuple[Expr, ...]
+    label: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SlotBlock(Node):
+    num: int
+    kind: str
+    directives: tuple[SlotDir, ...]
+
+
+# -----------------------------------------------------------------------------
 # top-level program container
 # -----------------------------------------------------------------------------
 # TopItem gains the block forms (signals, slot, waveform, sequence, mode) as
 # those constructs are added in later steps. Program is the AST root.
 
-TopItem = Include | ConstDecl | ParamDecl | SignalsBlock
+TopItem = Include | ConstDecl | ParamDecl | SignalsBlock | SlotBlock
 
 
 @dataclass(frozen=True, slots=True)
