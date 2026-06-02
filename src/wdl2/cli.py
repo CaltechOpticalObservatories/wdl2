@@ -14,28 +14,48 @@
 
 """Command-line entry point for the wdl2 compiler.
 
-For now this is a stub: the package is installable and the `wdl2` command runs,
-but there is nothing to build yet, so it reports that and exits non-zero. Real
-argument parsing and the build command are wired up once the compiler can
-produce output.
+stub-only. wires argument parser so `wdl2 --help` and the `build`
+subcommand exist, but build is not yet implemented.
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 
 
 # -----------------------------------------------------------------------------
-# @fn       main
-# @brief    command-line entry point named by the wdl2 console script
-# @details  Stub for now: there is nothing to build, so it reports that on
-#           stderr and returns a non-zero status. Argument parsing and the
-#           build command arrive once the compiler can produce output.
-# @param    argv   optional argument list (defaults to sys.argv[1:])
-# @return   integer exit status
+# @fn      build_parser
+# @brief   construct the argument parser for the wdl2 command
+# @details Declares the `build` subcommand with a source-file argument and a
+#          --legacy flag. The subcommand is recognized but not yet implemented.
+# @return  a configured argparse.ArgumentParser
+# -----------------------------------------------------------------------------
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="wdl2", description="WDL 2.0 compiler")
+    sub = p.add_subparsers(dest="command", metavar="<command>")
+
+    build = sub.add_parser("build", help="(not yet implemented) compile a .wdl2 source")
+    build.add_argument("source", help="path to .wdl2 source file")
+    build.add_argument("--legacy", action="store_true", help="ingest a WDL1 multi-file project")
+
+    return p
+
+
+# -----------------------------------------------------------------------------
+# @fn      main
+# @brief   command-line entry point named by the wdl2 console script
+# @details stub only, accepts any subcommand
+# @param   argv   optional argument list (defaults to sys.argv[1:])
+# @return  integer exit status
 # -----------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
-    print("wdl2: nothing to build yet", file=sys.stderr)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
+    print(f"wdl2: command {args.command!r} not yet implemented", file=sys.stderr)
     return 2
 
 
