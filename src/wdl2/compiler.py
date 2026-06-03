@@ -16,20 +16,22 @@
 
 Loads the packaged lark grammars, builds and caches the parsers, and exposes
 the parse_* functions that turn a source file into a typed AST. No semantic
-checking or code generation happens here, only parsing. For now only the
-native WDL 2.0 grammar is wired up. Legacy (WDL1) parsing and the legacy
-preprocessor are added in later steps.
+checking or code generation happens here, only parsing. Both the native
+WDL 2.0 grammar and the WDL1 (legacy) grammar are wired up.
 """
 
 from __future__ import annotations
 
 from importlib import resources
 from pathlib import Path
+from typing import Literal
 
 from lark import Lark
 
 from .ast.nodes import Node
-from .ast.transform import NativeTransformer
+from .ast.transform import LegacyTransformer, NativeTransformer
+
+LegacyKind = Literal["waveform", "seq", "mod"]
 
 
 # -----------------------------------------------------------------------------
@@ -65,8 +67,9 @@ def _make_lark(grammar_file: str, start: str | list[str]) -> Lark:
     )
 
 
-# The parser is comparatively expensive to build, so build it once on first use.
+# The parsers are comparatively expensive to build, so build each once on first use.
 _native_parser: Lark | None = None
+_legacy_parser: Lark | None = None
 
 
 # -----------------------------------------------------------------------------
@@ -84,6 +87,24 @@ def native_parser() -> Lark:
 
 
 # -----------------------------------------------------------------------------
+# @fn      legacy_parser
+# @brief   return the shared legacy (WDL1) parser, building it on first use
+# @details The legacy grammar has a start rule per WDL1 file kind (waveform /
+#          seq / mod); parse_legacy selects the right one. .signals and .def are
+#          preprocessor input, not parsed here.
+# @return  the legacy Lark parser
+# -----------------------------------------------------------------------------
+def legacy_parser() -> Lark:
+    global _legacy_parser
+    if _legacy_parser is None:
+        _legacy_parser = _make_lark(
+            "legacy.lark",
+            start=["waveform_file", "seq_file", "mod_file"],
+        )
+    return _legacy_parser
+
+
+# -----------------------------------------------------------------------------
 # @fn       parse_native
 # @brief    parse a native .wdl2 source file into a typed AST
 # @details  Reads the file, parses it through the native grammar, then runs the
@@ -96,3 +117,19 @@ def parse_native(path: str | Path) -> Node:
     p = Path(path)
     tree = native_parser().parse(p.read_text(encoding="utf-8"))
     return NativeTransformer(str(p)).transform(tree)
+
+
+# -----------------------------------------------------------------------------
+# @fn      parse_legacy
+# @brief   parse a single post-GPP WDL1 file into a typed AST
+# @details Parses through the legacy grammar using the start rule for `kind`
+#          (one of waveform/seq/mod), then runs the legacy transformer.
+#          This expects already-preprocessed input.
+# @param   path   path to the legacy source file
+# @param   kind   which WDL1 file kind this is
+# @return  the root node of the AST
+# -----------------------------------------------------------------------------
+def parse_legacy(path: str | Path, kind: LegacyKind) -> Node:
+    p = Path(path)
+    tree = legacy_parser().parse(p.read_text(encoding="utf-8"), start=f"{kind}_file")
+    return LegacyTransformer(str(p)).transform(tree)

@@ -1,0 +1,216 @@
+// ----------------------------------------------------------------------------
+// @file     legacy.lark
+// @brief    WDL1 (legacy) grammar
+// @author   David Hale
+// ----------------------------------------------------------------------------
+// Copyright (C) 2026 California Institute of Technology
+// SPDX-License-Identifier: BSD-3-Clause
+//
+//     This program is part of the Waveform Definition Language (WDL) version 2.
+//     Distributed under the terms of the BSD 3-Clause License; see pyproject.toml.
+// ----------------------------------------------------------------------------
+// Multiple start rules. the driver picks one per file extension:
+//   .waveform.pp -> waveform_file   (post-GPP)
+//   .seq.pp      -> seq_file        (post-GPP; SIGNALS{} no-op accepted here)
+//   .mod.pp      -> mod_file        (post-GPP)
+//
+// .signals and .def are NOT parsed here: they are preprocessor input (see the
+// note where the signals rules would otherwise be). All rules feed the same AST
+// nodes as wdl2.lark wherever the constructs match.
+
+// ----------------------------------------------------------------------------
+// waveform_file
+// ----------------------------------------------------------------------------
+// Replaces wdlParser.py:2037-2245 waveform branch. Post-GPP only.
+//
+waveform_file: wf_block*
+
+wf_block: "WAVEFORM"i wf_name "{" lwf_stmt* "}"
+
+// `WAVEFORM Name.set_nperiods(100) { ... }`. the Python extension hook from
+// wdlParser.py:2109-2164. Parsed and carried in the AST. native mode rejects it.
+//
+wf_name: CNAME wf_pyext?
+
+wf_pyext: "." CNAME "(" arg_list? ")"
+
+?lwf_stmt: lwf_timed_stmt | lwf_bare_set | lwf_bare_return
+
+lwf_timed_stmt: ltime_designator ":" lwf_label? lwf_body
+
+lwf_label: "=" CNAME
+
+?lwf_body: lset_stmt | lreturn_stmt_w
+
+lwf_bare_set: lset_stmt
+
+lwf_bare_return: lreturn_stmt_w
+
+?ltime_designator: ltime_relative | ltime_absolute
+
+ltime_relative: "." "+" lexpr
+
+ltime_absolute: lexpr
+
+// FAST/SLOW omission on clock SETs is a warning in WDL1 (#37). a semantic phase.
+//
+lset_stmt: "SET"i lset_target_or_group "TO"i lexpr lslew? _opt_semi
+
+?lset_target_or_group: lset_target | lset_target_group
+
+lset_target_group: "[" lset_target ("," lset_target)* "]"
+
+?lset_target: lset_target_slotchan | lset_target_ref
+
+lset_target_slotchan: slot_chan
+
+lset_target_ref: CNAME
+
+lslew: "," SLEW_KIND
+
+SLEW_KIND: "FAST"i | "SLOW"i
+
+// `RETURN [alt_name];`. the alternate name was parsed by WDL1
+// (wdlParser.py:2081) but never implemented in wavgen.py. both case forms ok.
+//
+lreturn_stmt_w: RETURN_KW lreturn_name? _opt_semi
+
+lreturn_name: CNAME
+
+RETURN_KW: "RETURN"i
+
+// ----------------------------------------------------------------------------
+// seq_file
+// ----------------------------------------------------------------------------
+// Replaces seq parsing. param/const are case-insensitive (wdlParser:consume).
+// `SIGNALS { }` no-op block is consumed and discarded (wdlParser.py:2609).
+//
+seq_file: seq_top*
+
+?seq_top: ldecl | lseq_block | signals_noop | lprint_stmt
+
+ldecl: ldecl_kw CNAME "=" lexpr _opt_semi
+
+ldecl_kw: PARAM_KW | CONST_KW
+
+PARAM_KW: "param"i
+
+CONST_KW: "const"i
+
+signals_noop: "SIGNALS"i "{" "}"
+
+lseq_block: "SEQUENCE"i CNAME "{" lseq_stmt* "}"
+
+?lseq_stmt: lexplicit_call | lident_seq_stmt | lgoto_stmt | lif_stmt | lreturn_stmt_s
+
+lexplicit_call: "CALL"i CNAME "(" larg? ")" _opt_semi
+
+lident_seq_stmt: CNAME lident_seq_tail
+
+?lident_seq_tail: lident_seq_call | lident_seq_inc | lident_seq_dec
+
+lident_seq_call: "(" larg? ")" _opt_semi
+
+lident_seq_inc: "++" _opt_semi
+
+lident_seq_dec: "--" _opt_semi
+
+lgoto_stmt: "GOTO"i CNAME "(" ")" _opt_semi
+
+// `if !param body`. required (DECISIONS / issue #30).
+//
+lif_stmt: "IF"i lif_neg? CNAME lseq_stmt
+
+lif_neg: "!"
+
+lreturn_stmt_s: RETURN_KW lreturn_name? _opt_semi
+
+// WDL1 PRINT (wdlParser.py:wprint) is a compile-time stderr message that stores
+// nothing. WDL1 accepts it at the top level of seq/mod streams and inside SLOT
+// bodies, NOT inside SEQUENCE or WAVEFORM blocks. We accept it in those same
+// places and swallow it (the transformer returns nothing).
+//
+lprint_stmt: "PRINT"i "(" STRING ")" _opt_semi
+
+// ----------------------------------------------------------------------------
+// mod_file
+// ----------------------------------------------------------------------------
+// Replaces .mod SLOT blocks. wdlParser.py:243-1561 enumerates 17 module types;
+// here a generic directive form defers validation to the Archon target. WDL1
+// parse_modules accepts only SLOT and PRINT (wdlParser.py:2535-2539), so no
+// param/const here.
+//
+mod_file: mod_top*
+
+?mod_top: lslot_block | lprint_stmt
+
+lslot_block: "SLOT"i INT CNAME "{" lslot_dir* "}"
+
+// Three shapes seen across corpora:
+//   LVLC 1 [v,2] "label";  -> array form (chan + args + optional label)
+//   DIOPOWER = 0;          -> kv form, no channel
+//   CLAMP 1 = 1.5;         -> kv form WITH channel (ztf_science.mod)
+//
+?lslot_dir: lslot_dir_array | lslot_dir_kv | lprint_stmt
+
+lslot_dir_array: CNAME lslot_dir_chan? lslot_dir_args? STRING? _opt_semi
+
+lslot_dir_kv: CNAME lslot_dir_chan? "=" lexpr _opt_semi
+
+lslot_dir_chan: INT
+
+lslot_dir_args: "[" arg_list "]"
+
+// ----------------------------------------------------------------------------
+// (no signals_file / def_file start rules)
+// ----------------------------------------------------------------------------
+// .signals and .def are preprocessor input, not parsed structurally. GPP (and,
+// in --legacy mode, the Phase-2 preprocessor) resolves their #if conditionals
+// and consumes their #define macros into the environment, so signal names
+// expand at their use sites in .waveform/.seq/.mod. There is nothing for this
+// grammar to parse from them. (WDL1's wdlParser does the same: it emits
+// `#include <signalfile>` and lets GPP expand the names.)
+
+// ----------------------------------------------------------------------------
+// expressions (shared by lwf_stmt, ldecl, lset_stmt, lif_stmt, etc.)
+// ----------------------------------------------------------------------------
+?lexpr: lsum
+?lsum: lproduct
+     | lsum "+" lproduct -> add
+     | lsum "-" lproduct -> sub
+?lproduct: lunary
+         | lproduct "*" lunary -> mul
+         | lproduct "/" lunary -> div
+         | lproduct "%" lunary -> mod
+?lunary: latom
+       | "-" lunary -> neg
+       | "+" lunary -> pos
+?latom: INT          -> int_atom
+      | FLOAT        -> float_atom
+      | CNAME        -> ident_atom
+      | "(" lexpr ")"
+
+slot_chan: INT ":" INT
+arg_list: lexpr ("," lexpr)*
+larg: lexpr
+
+// ----------------------------------------------------------------------------
+// lexical
+// ----------------------------------------------------------------------------
+// Optional semicolon. mirrors WDL1 leniency (DECISIONS.md).
+//
+_opt_semi: ";"?
+
+INT: /\d+/
+FLOAT: /\d+\.\d*([eE][+-]?\d+)?|\.\d+([eE][+-]?\d+)?|\d+[eE][+-]?\d+/
+
+%import common.CNAME
+%import common.WS
+%ignore WS
+// WDL1 labels may use single OR double quotes. Demo.mod uses 'OPAMP...',
+// .conf uses "....waveform". Accept both quote styles.
+STRING: /"[^"\n]*"/ | /'[^'\n]*'/
+LINE_COMMENT: /\/\/[^\n]*/
+BLOCK_COMMENT: /\/\*([^*]|\*+[^*\/])*\*+\//
+%ignore LINE_COMMENT
+%ignore BLOCK_COMMENT

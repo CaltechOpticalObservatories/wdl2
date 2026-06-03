@@ -131,6 +131,11 @@ class SignalsBlock(Node):
     items: tuple[SignalItem, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SignalsNoop(Node):
+    """Legacy WDL1 `SIGNALS { }` no-op block. Accepted in --legacy only."""
+
+
 # -----------------------------------------------------------------------------
 # slot block (generic SLOT directives)
 # -----------------------------------------------------------------------------
@@ -256,7 +261,6 @@ class IncDec(Node):
     op: Literal["++", "--"]
 
 
-# PrintStmt (legacy PRINT) joins this union when the legacy grammar lands.
 SeqStmt = CallStmt | GotoStmt | IfStmt | ReturnStmt | IncDec
 
 
@@ -294,6 +298,7 @@ TopItem = (
     | ConstDecl
     | ParamDecl
     | SignalsBlock
+    | SignalsNoop
     | SlotBlock
     | WaveformBlock
     | SequenceBlock

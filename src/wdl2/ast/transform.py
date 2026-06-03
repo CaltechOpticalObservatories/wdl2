@@ -43,6 +43,7 @@ from .nodes import (
     ModeEntry,
     ParamDecl,
     Program,
+    PythonExt,
     ReturnStmt,
     SequenceBlock,
     SetStmt,
@@ -50,6 +51,7 @@ from .nodes import (
     SignalItem,
     SignalRef,
     SignalsBlock,
+    SignalsNoop,
     Slew,
     SlotBlock,
     SlotChan,
@@ -157,6 +159,9 @@ class _BaseTransformer(Transformer):
         return tuple(children)
 
     def arg(self, children: list) -> Any:
+        return children[0]
+
+    def larg(self, children: list) -> Any:
         return children[0]
 
     # -------------------------------------------------------------------------
@@ -420,3 +425,254 @@ class NativeTransformer(_BaseTransformer):
 
     def mode_value_string(self, children: list) -> str:
         return _str(children[0])[1:-1]  # strip the surrounding quotes
+
+
+# -----------------------------------------------------------------------------
+# legacy transformer
+# -----------------------------------------------------------------------------
+
+class LegacyTransformer(_BaseTransformer):
+    """Builds the typed AST from a WDL1 (legacy) parse tree. Reuses the shared
+    base for expressions, slot:chan, and argument lists; the l-prefixed methods
+    mirror the native rule-methods for the WDL1 surface syntax.
+    """
+
+    # -------------------------------------------------------------------------
+    # file-level start rules
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def waveform_file(self, meta: Meta, children: list) -> Program:
+        return Program(items=tuple(children), loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def seq_file(self, meta: Meta, children: list) -> Program:
+        # a top-level PRINT is accepted but swallowed (yields None), so filter
+        return Program(items=tuple(c for c in children if c is not None), loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def mod_file(self, meta: Meta, children: list) -> Program:
+        return Program(items=tuple(c for c in children if c is not None), loc=self._loc(meta))
+
+    # -------------------------------------------------------------------------
+    # waveform_file
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def wf_block(self, meta: Meta, children: list) -> WaveformBlock:
+        # children[0] is a (name, pyext|None) tuple from wf_name
+        name, pyext = children[0]
+        stmts = tuple(children[1:])
+        return WaveformBlock(name=name, pyext=pyext, stmts=stmts, loc=self._loc(meta))
+
+    def wf_name(self, children: list) -> tuple:
+        name = _str(children[0])
+        pyext = children[1] if len(children) > 1 else None
+        return (name, pyext)
+
+    @v_args(meta=True)
+    def wf_pyext(self, meta: Meta, children: list) -> PythonExt:
+        attr = _str(children[0])
+        args: tuple = children[1] if len(children) > 1 else ()
+        return PythonExt(attr=attr, args=args, loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def lwf_timed_stmt(self, meta: Meta, children: list) -> WfTimedStmt:
+        time = children[0]
+        rest = children[1:]
+        label = None
+        if rest and isinstance(rest[0], str):
+            label = rest[0]
+            rest = rest[1:]
+        body = rest[0]
+        if isinstance(body, ReturnStmt):
+            return WfTimedStmt(time=time, label=label, sets=(), ret=body, loc=self._loc(meta))
+        return WfTimedStmt(time=time, label=label, sets=(body,), ret=None, loc=self._loc(meta))
+
+    def lwf_label(self, children: list) -> str:
+        return _str(children[0])
+
+    @v_args(meta=True)
+    def lwf_bare_set(self, meta: Meta, children: list) -> WfBareSet:
+        return WfBareSet(set=children[0], loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def lwf_bare_return(self, _meta: Meta, children: list) -> ReturnStmt:
+        return children[0]
+
+    @v_args(meta=True)
+    def ltime_relative(self, meta: Meta, children: list) -> TimeRelative:
+        return TimeRelative(expr=children[0], loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def ltime_absolute(self, meta: Meta, children: list) -> TimeAbsolute:
+        return TimeAbsolute(expr=children[0], loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def lset_stmt(self, meta: Meta, children: list) -> SetStmt:
+        target = children[0]
+        target_group = None
+        single: Any = None
+        if isinstance(target, tuple):
+            target_group = target
+        else:
+            single = target
+        value = children[1]
+        slew = children[2] if len(children) > 2 else None
+        return SetStmt(
+            target=single,
+            target_group=target_group,
+            value=value,
+            slew=slew,
+            loc=self._loc(meta),
+        )
+
+    def lset_target_group(self, children: list) -> tuple:
+        return tuple(children)
+
+    @v_args(meta=True)
+    def lset_target_ref(self, meta: Meta, children: list) -> SignalRef:
+        return SignalRef(name=_str(children[0]), loc=self._loc(meta))
+
+    def lset_target_slotchan(self, children: list) -> SlotChan:
+        return children[0]
+
+    @v_args(meta=True)
+    def lslew(self, meta: Meta, children: list) -> Slew:
+        kind = _str(children[0]).upper()
+        return Slew(kind=kind, loc=self._loc(meta))  # type: ignore[arg-type]
+
+    @v_args(meta=True)
+    def lreturn_stmt_w(self, meta: Meta, children: list) -> ReturnStmt:
+        # children = [RETURN_KW, alt_name?]
+        alt_name = None
+        if len(children) > 1:
+            alt_name = _str(children[1])
+        return ReturnStmt(alt_name=alt_name, loc=self._loc(meta))
+
+    def lreturn_name(self, children: list) -> str:
+        return _str(children[0])
+
+    # -------------------------------------------------------------------------
+    # seq_file
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def ldecl(self, meta: Meta, children: list) -> ConstDecl | ParamDecl:
+        kw = _str(children[0]).lower()
+        name = _str(children[1])
+        value = children[2]
+        if kw == "param":
+            return ParamDecl(name=name, value=value, loc=self._loc(meta))
+        return ConstDecl(name=name, value=value, loc=self._loc(meta))
+
+    def ldecl_kw(self, children: list) -> Token:
+        return children[0]
+
+    @v_args(meta=True)
+    def signals_noop(self, meta: Meta, _children: list) -> SignalsNoop:
+        return SignalsNoop(loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def lseq_block(self, meta: Meta, children: list) -> SequenceBlock:
+        name = _str(children[0])
+        stmts = tuple(children[1:])
+        return SequenceBlock(name=name, stmts=stmts, loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def lexplicit_call(self, meta: Meta, children: list) -> CallStmt:
+        name = _str(children[0])
+        arg = children[1] if len(children) > 1 else None
+        return CallStmt(target=name, arg=arg, explicit=True, loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def lident_seq_stmt(self, meta: Meta, children: list) -> Any:
+        name = _str(children[0])
+        kind, payload = children[1]
+        if kind == "call":
+            return CallStmt(target=name, arg=payload, explicit=False, loc=self._loc(meta))
+        if kind == "inc":
+            return IncDec(name=name, op="++", loc=self._loc(meta))
+        if kind == "dec":
+            return IncDec(name=name, op="--", loc=self._loc(meta))
+        raise AssertionError(f"unknown lident_seq tail: {kind}")
+
+    def lident_seq_call(self, children: list) -> tuple:
+        return ("call", children[0] if children else None)
+
+    def lident_seq_inc(self, _children: list) -> tuple:
+        return ("inc", None)
+
+    def lident_seq_dec(self, _children: list) -> tuple:
+        return ("dec", None)
+
+    @v_args(meta=True)
+    def lgoto_stmt(self, meta: Meta, children: list) -> GotoStmt:
+        return GotoStmt(target=_str(children[0]), loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def lif_stmt(self, meta: Meta, children: list) -> IfStmt:
+        negated = False
+        rest = list(children)
+        if rest and rest[0] is True:
+            negated = True
+            rest = rest[1:]
+        return IfStmt(negated=negated, param=_str(rest[0]), body=rest[1], loc=self._loc(meta))
+
+    def lif_neg(self, _children: list) -> bool:
+        return True
+
+    @v_args(meta=True)
+    def lreturn_stmt_s(self, meta: Meta, children: list) -> ReturnStmt:
+        alt_name = None
+        if len(children) > 1:
+            alt_name = _str(children[1])
+        return ReturnStmt(alt_name=alt_name, loc=self._loc(meta))
+
+    def lprint_stmt(self, _children: list) -> None:
+        # WDL1 PRINT is a compile-time stderr diagnostic that stores nothing
+        # (wdlParser.py:wprint). In --legacy mode we accept it and swallow it.
+        return None
+
+    # -------------------------------------------------------------------------
+    # mod_file
+    # -------------------------------------------------------------------------
+    @v_args(meta=True)
+    def lslot_block(self, meta: Meta, children: list) -> SlotBlock:
+        num = int(children[0])
+        kind = _str(children[1])
+        # filter None: a PRINT inside a SLOT body is accepted but swallowed
+        directives = tuple(c for c in children[2:] if c is not None)
+        return SlotBlock(num=num, kind=kind, directives=directives, loc=self._loc(meta))
+
+    @v_args(meta=True)
+    def lslot_dir_array(self, meta: Meta, children: list) -> SlotDir:
+        keyword = _str(children[0])
+        chan = None
+        args: tuple = ()
+        label = None
+        for c in children[1:]:
+            if isinstance(c, int):
+                chan = c
+            elif isinstance(c, tuple):
+                args = c
+            elif isinstance(c, str):
+                label = c
+        return SlotDir(keyword=keyword, chan=chan, args=args, label=label, loc=self._loc(meta))
+
+    def lslot_dir_chan(self, children: list) -> int:
+        return int(children[0])
+
+    def lslot_dir_args(self, children: list) -> tuple:
+        return children[0]
+
+    @v_args(meta=True)
+    def lslot_dir_kv(self, meta: Meta, children: list) -> SlotDir:
+        # `KEYWORD <chan>? = value`. an int child is the channel (lslot_dir_chan),
+        # the Expr child is the value. WDL1's clamp() keeps both; keep both here.
+        keyword = _str(children[0])
+        chan = None
+        value = None
+        for c in children[1:]:
+            if isinstance(c, int):
+                chan = c
+            else:
+                value = c
+        return SlotDir(keyword=keyword, chan=chan, args=(value,), label=None, loc=self._loc(meta))
