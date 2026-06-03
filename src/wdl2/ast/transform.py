@@ -250,14 +250,17 @@ class NativeTransformer(_BaseTransformer):
 
     @v_args(meta=True)
     def slot_dir_kv(self, meta: Meta, children: list) -> SlotDir:
+        # `KEYWORD <chan>? = value`. an int child is the channel (slot_dir_chan),
+        # the Expr child is the value. keep both (do not drop the value).
         keyword = _str(children[0])
-        return SlotDir(
-            keyword=keyword,
-            chan=None,
-            args=(children[1],),
-            label=None,
-            loc=self._loc(meta),
-        )
+        chan = None
+        value = None
+        for c in children[1:]:
+            if isinstance(c, int):
+                chan = c
+            else:
+                value = c
+        return SlotDir(keyword=keyword, chan=chan, args=(value,), label=None, loc=self._loc(meta))
 
     # -------------------------------------------------------------------------
     # waveform block. time-prefixed or bare SET statements. native waveforms
