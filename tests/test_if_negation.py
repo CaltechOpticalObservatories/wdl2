@@ -11,17 +11,17 @@
 #     Distributed under the terms of the BSD 3-Clause License; see pyproject.toml.
 # -----------------------------------------------------------------------------
 
-"""`IF !param body` is supported in native source (WDL1 issue #30).
+"""`IF !param body` is supported by both the native and legacy grammars
+(WDL1 issue #30).
 
-WDL1 only honored `!` for param, not const. DECISIONS.md mandates parity. The
-matching legacy-grammar check is added once the legacy grammar exists.
+WDL1 only honored `!` for param, not const.
 """
 
 from __future__ import annotations
 
 from wdl2.ast.nodes import CallStmt, IfStmt, Program, SequenceBlock
-from wdl2.ast.transform import NativeTransformer
-from wdl2.compiler import native_parser
+from wdl2.ast.transform import LegacyTransformer, NativeTransformer
+from wdl2.compiler import legacy_parser, native_parser
 
 
 # -----------------------------------------------------------------------------
@@ -51,6 +51,21 @@ def test_native_if_negation() -> None:
     """
     tree = native_parser().parse(text)
     prog = NativeTransformer("<test>").transform(tree)
+    stmt = _extract_if(prog)
+    assert stmt.negated is True
+    assert stmt.param == "Abort"
+    assert isinstance(stmt.body, CallStmt)
+    assert stmt.body.target == "Cleanup"
+
+
+def test_legacy_if_negation() -> None:
+    text = """
+    SEQUENCE Foo {
+      if !Abort Cleanup();
+    }
+    """
+    tree = legacy_parser().parse(text, start="seq_file")
+    prog = LegacyTransformer("<test>").transform(tree)
     stmt = _extract_if(prog)
     assert stmt.negated is True
     assert stmt.param == "Abort"
